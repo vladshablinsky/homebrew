@@ -91,6 +91,12 @@ class MigratorTests < Homebrew::TestCase
 
     rmtree HOMEBREW_PREFIX/"bin"
     rmtree HOMEBREW_PREFIX/"opt" if (HOMEBREW_PREFIX/"opt").directory?
+
+    candidates = HOMEBREW_CACHE_FORMULA.children
+    lockfiles  = candidates.select { |f| f.file? && f.extname == ".brewing" }
+    lockfiles.select(&:readable?).each do |file|
+      file.open.flock(File::LOCK_EX | File::LOCK_NB) && file.unlink
+    end
     # What to do with pin?
     @new_f.unpin
   end
