@@ -53,8 +53,10 @@ module Homebrew
           puts "Uninstalling #{name}... (#{rack.abv})"
           rack.subdirs.each do |d|
             keg = Keg.new(d)
-            keg.unlink
-            keg.uninstall
+            keg.lock do
+              keg.unlink
+              keg.uninstall
+            end
           end
         end
 

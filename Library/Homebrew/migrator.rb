@@ -179,7 +179,7 @@ class Migrator
     oh1 "Unlinking #{Tty.green}#{oldname}#{Tty.reset}"
     oldpath.subdirs.each do |d|
       keg = Keg.new(d)
-      keg.unlink
+      keg.lock { keg.unlink }
     end
   end
 
@@ -187,43 +187,45 @@ class Migrator
     oh1 "Linking #{Tty.green}#{newname}#{Tty.reset}"
     keg = Keg.new(new_keg)
 
-    # If old_keg wasn't linked then we just optlink a keg.
-    # If old keg wasn't optlinked and linked, we don't call this method at all.
-    # If formula is keg-only we also optlink it.
-    if formula.keg_only? || !old_linked_keg_record
+    keg.lock do
+      # If old_keg wasn't linked then we just optlink a keg.
+      # If old keg wasn't optlinked and linked, we don't call this method at all.
+      # If formula is keg-only we also optlink it.
+      if formula.keg_only? || !old_linked_keg_record
+        begin
+          keg.optlink
+        rescue Keg::LinkError => e
+          onoe "Failed to create #{formula.opt_prefix}"
+          raise
+        end
+        return
+      end
+
+      keg.remove_linked_keg_record if keg.linked?
+
       begin
-        keg.optlink
+        keg.link
+      rescue Keg::ConflictError => e
+        onoe "Error while executing `brew link` step on #{newname}"
+        puts e
+        puts
+        puts "Possible conflicting files are:"
+        mode = OpenStruct.new(:dry_run => true, :overwrite => true)
+        keg.link(mode)
+        raise
       rescue Keg::LinkError => e
-        onoe "Failed to create #{formula.opt_prefix}"
+        onoe "Error while linking"
+        puts e
+        puts
+        puts "You can try again using:"
+        puts "  brew link #{formula.name}"
+      rescue Exception => e
+        onoe "An unexpected error occurred during linking"
+        puts e
+        puts e.backtrace if ARGV.debug?
+        ignore_interrupts { keg.unlink }
         raise
       end
-      return
-    end
-
-    keg.remove_linked_keg_record if keg.linked?
-
-    begin
-      keg.link
-    rescue Keg::ConflictError => e
-      onoe "Error while executing `brew link` step on #{newname}"
-      puts e
-      puts
-      puts "Possible conflicting files are:"
-      mode = OpenStruct.new(:dry_run => true, :overwrite => true)
-      keg.link(mode)
-      raise
-    rescue Keg::LinkError => e
-      onoe "Error while linking"
-      puts e
-      puts
-      puts "You can try again using:"
-      puts "  brew link #{formula.name}"
-    rescue Exception => e
-      onoe "An unexpected error occurred during linking"
-      puts e
-      puts e.backtrace if ARGV.debug?
-      ignore_interrupts { keg.unlink }
-      raise
     end
   end
 
@@ -286,8 +288,10 @@ class Migrator
     if newpath.exist?
       newpath.subdirs.each do |d|
         newname_keg = Keg.new(d)
-        newname_keg.unlink
-        newname_keg.uninstall
+        newname_keg.lock do
+          newname_keg.unlink
+          newname_keg.uninstall
+        end
       end
     end
 
@@ -295,18 +299,20 @@ class Migrator
       # The keg used to be linked and when we backup everything we restore
       # Cellar/oldname, the target also gets restored, so we are able to
       # create a keg using its old path
-      if old_linked_keg_record
-        begin
-          oldkeg.link
-        rescue Keg::LinkError
-          oldkeg.unlink
-          raise
-        rescue Keg::AlreadyLinkedError
-          oldkeg.unlink
-          retry
+      oldkeg.lock do
+        if old_linked_keg_record
+          begin
+            oldkeg.link
+          rescue Keg::LinkError
+            oldkeg.unlink
+            raise
+          rescue Keg::AlreadyLinkedError
+            oldkeg.unlink
+            retry
+          end
+        else
+          oldkeg.optlink
         end
-      else
-        oldkeg.optlink
       end
     end
   end
