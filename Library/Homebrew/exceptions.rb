@@ -68,6 +68,16 @@ class TapFormulaUnavailableError < FormulaUnavailableError
   end
 end
 
+class TapFormulaRemovedError < TapFormulaUnavailableError
+  def initialize(tap, name)
+    super(tap, name)
+  end
+
+  def to_s
+    "#{name} was removed from tap."
+  end
+end
+
 class TapFormulaAmbiguityError < RuntimeError
   attr_reader :name, :paths, :formulae
 

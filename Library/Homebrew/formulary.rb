@@ -141,12 +141,12 @@ class Formulary
 
   # Loads tapped formulae.
   class TapLoader < FormulaLoader
-    attr_reader :tap
+    attr_reader :tap, :oldname
 
     def initialize(tapped_name)
-      user, repo, name = tapped_name.split("/", 3).map(&:downcase)
+      user, repo, @oldname = tapped_name.split("/", 3).map(&:downcase)
       @tap = Tap.fetch user, repo.sub(/^homebrew-/, "")
-      name = @tap.formula_renames.fetch(name, name)
+      name = @tap.formula_renames.fetch(oldname, oldname)
       path = @tap.formula_files.detect { |file| file.basename(".rb").to_s == name }
 
       unless path
@@ -164,6 +164,7 @@ class Formulary
     def get_formula(spec)
       super
     rescue FormulaUnavailableError => e
+      raise TapFormulaRemovedError.new(tap, oldname) if name == ""
       raise TapFormulaUnavailableError.new(tap, name), "", e.backtrace
     end
   end
@@ -222,6 +223,8 @@ class Formulary
     else
       begin
         factory("#{tap}/#{rack.basename}", spec)
+      rescue TapFormulaRemovedError => e
+        raise e
       rescue FormulaUnavailableError
         # formula may be migrated to different tap. Try to search in core and all taps.
         factory(rack.basename.to_s, spec)
